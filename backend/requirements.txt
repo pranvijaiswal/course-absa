@@ -1,0 +1,8 @@
+flask
+pymongo
+pyabsa[all]   # NOTE: heavy, includes transformers & torch - see run notes below
+google-api-python-client
+beautifulsoup4
+requests
+dnspython     # for MongoDB Atlas
+flask-cors
