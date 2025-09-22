@@ -5,6 +5,7 @@ from db_client import insert_review, get_reviews
 from analyzer import ABSAService
 from recommender import aggregate_aspect_scores, recommend_by_preference
 from datetime import datetime
+from youtube_collector import fetch_comments_for_video
 
 app = Flask(__name__)
 CORS(app)
@@ -31,6 +32,39 @@ def analyze():
         return jsonify({"error": "no text provided"}), 400
     res = absa.analyze_text(text)
     return jsonify({"analysis": res})
+
+@app.route("/collect/youtube", methods=["POST"])
+def collect_youtube_comments():
+    data = request.json or {}
+    url = data.get("url")
+    video_id = data.get("videoId")
+    max_results = int(data.get("max_results", 50))
+
+    def _parse_video_id_from_url(candidate_url: str):
+        if not candidate_url:
+            return None
+        # Support formats: https://www.youtube.com/watch?v=VIDEOID, https://youtu.be/VIDEOID
+        try:
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(candidate_url)
+            if parsed.netloc.endswith("youtu.be"):
+                vid = parsed.path.lstrip("/")
+                return vid or None
+            if parsed.netloc.endswith("youtube.com"):
+                qs = parse_qs(parsed.query)
+                return (qs.get("v", [None])[0])
+        except Exception:
+            return None
+        return None
+
+    if not video_id and url:
+        video_id = _parse_video_id_from_url(url)
+
+    if not video_id:
+        return jsonify({"error": "videoId or url is required"}), 400
+
+    fetch_comments_for_video(video_id, max_results=max_results)
+    return jsonify({"status": "ok", "video_id": video_id, "max_results": max_results}), 200
 
 @app.route("/course/<course_id>/analysis", methods=["GET"])
 def course_analysis(course_id):
