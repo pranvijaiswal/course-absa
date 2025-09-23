@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 function AnalysisPage() {
   const [course, setCourse] = useState("");
   const [results, setResults] = useState(null);
+  const [statusMessage, setStatusMessage] = useState(null);
 
   const mutation = useMutation({
     mutationFn: async (courseName) => {
@@ -12,16 +13,30 @@ function AnalysisPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ course: courseName }),
       });
+      if (!res.ok) throw new Error("Fetch failed");
       return res.json();
     },
-    onSuccess: (data) => setResults(data),
+    onSuccess: (data) => {
+      setResults(data);
+      setStatusMessage(null);
+    },
+    onError: () => {
+    },
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (course.trim()) {
-      setResults(null); // Clear previous results
+      setResults(null);
       mutation.mutate(course);
+
+      setStatusMessage("Fetching comments...");
+      setTimeout(() => {
+        setStatusMessage("Analyzing comments...");
+      }, 5000);
+      setTimeout(() => {
+        setStatusMessage("Failed to generate a review.");
+      }, 10000);
     }
   };
 
@@ -52,15 +67,13 @@ function AnalysisPage() {
         </form>
       </div>
 
-      {/* Loading message */}
-      {mutation.isLoading && (
-        <div className="loading">
-          <p>Fetching course analysis, please wait...</p>
+      {statusMessage && (
+        <div className="status-message">
+          <p>{statusMessage}</p>
         </div>
       )}
 
-      {/* Results */}
-      {results && !mutation.isLoading && (
+      {results && (
         <div className="results">
           <div className="card">
             <h2>Aspect Sentiments</h2>
@@ -100,7 +113,7 @@ function AnalysisPage() {
           }
         }
 
-        .loading {
+        .status-message {
           margin-top: 20px;
           font-style: italic;
           color: #555;

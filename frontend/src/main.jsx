@@ -10,7 +10,7 @@ import HomePage from "./routes/HomePage";
 import AnalysisPage from "./routes/AnalysisPage";
 
 // global styles
-import "./app.css";
+import "./App.css";
 
 // ✅ create react-query client
 const queryClient = new QueryClient();
