@@ -1,52 +1,113 @@
-import { useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../services/api.js'
+import React, { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 
-export default function AnalysisPage() {
-  const { courseId } = useParams()
+function AnalysisPage() {
+  const [course, setCourse] = useState("");
+  const [results, setResults] = useState(null);
 
-  const query = useQuery({
-    queryKey: ['course-analysis', courseId],
-    queryFn: async () => {
-      const res = await api.get(`/course/${courseId}/analysis`)
-      return res
+  const mutation = useMutation({
+    mutationFn: async (courseName) => {
+      const res = await fetch("http://localhost:5000/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course: courseName }),
+      });
+      return res.json();
     },
-    enabled: !!courseId,
-    staleTime: 0,
-  })
+    onSuccess: (data) => setResults(data),
+  });
 
-  const data = query.data
-  const aggregated = data?.aggregated || {}
-  const rawCount = data?.raw_count || 0
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (course.trim()) {
+      setResults(null); // Clear previous results
+      mutation.mutate(course);
+    }
+  };
 
   return (
-    <div style={{ maxWidth: 960 }}>
-      <h2 style={{ marginTop: 0 }}>Analysis: {courseId}</h2>
-      {query.isLoading && <p>Loading analysis…</p>}
-      {query.isError && (
-        <p style={{ color: '#c62828' }}>Failed to load analysis.</p>
+    <div className="page">
+      <h1>Course Analysis</h1>
+      <p className="text-muted">
+        Enter a course name to analyze feedback and recommendations.
+      </p>
+
+      <div className="card">
+        <form onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={course}
+            onChange={(e) => setCourse(e.target.value)}
+            placeholder="e.g. Data Structures and Algorithms"
+          />
+          <button type="submit" disabled={mutation.isLoading}>
+            {mutation.isLoading ? (
+              <>
+                <span className="spinner" /> Analyzing...
+              </>
+            ) : (
+              "Analyze Course"
+            )}
+          </button>
+        </form>
+      </div>
+
+      {/* Loading message */}
+      {mutation.isLoading && (
+        <div className="loading">
+          <p>Fetching course analysis, please wait...</p>
+        </div>
       )}
 
-      {query.isSuccess && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <h3>Aggregated Aspect Scores</h3>
+      {/* Results */}
+      {results && !mutation.isLoading && (
+        <div className="results">
+          <div className="card">
+            <h2>Aspect Sentiments</h2>
+            {results.aspects?.map((aspect, idx) => (
+              <div key={idx} className="aspect">
+                <strong>{aspect.name}:</strong> {aspect.sentiment}
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <h2>Recommendations</h2>
             <ul>
-              {Object.entries(aggregated).map(([aspect, score]) => (
-                <li key={aspect} style={{ marginBottom: 6 }}>
-                  <strong>{aspect}:</strong> {score}
-                </li>
+              {results.recommendations?.map((rec, idx) => (
+                <li key={idx}>{rec}</li>
               ))}
             </ul>
           </div>
-          <div>
-            <h3>Metadata</h3>
-            <p><strong>Raw comments analyzed:</strong> {rawCount}</p>
-          </div>
         </div>
       )}
+
+      <style jsx>{`
+        .spinner {
+          display: inline-block;
+          width: 16px;
+          height: 16px;
+          border: 2px solid #ccc;
+          border-top: 2px solid #333;
+          border-radius: 50%;
+          animation: spin 0.7s linear infinite;
+          margin-right: 8px;
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .loading {
+          margin-top: 20px;
+          font-style: italic;
+          color: #555;
+        }
+      `}</style>
     </div>
-  )
+  );
 }
 
-
+export default AnalysisPage;
