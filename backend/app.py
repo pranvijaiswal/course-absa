@@ -5,13 +5,29 @@ from db_client import insert_review, get_reviews
 from analyzer import ABSAService
 from recommender import aggregate_aspect_scores, recommend_by_preference
 from datetime import datetime
+
 from youtube_collector import fetch_comments_for_video
+
+import re
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 app = Flask(__name__)
 CORS(app)
 
 absa = ABSAService()
 
+# -----------------------------
+# Helpers
+# -----------------------------
+def extract_video_id(url: str):
+    match = re.search(r"(?:v=|youtu\.be/)([^&]+)", url)
+    return match.group(1) if match else None
+
+
+# -----------------------------
+# Routes
+# -----------------------------
 @app.route("/ingest", methods=["POST"])
 def ingest():
     data = request.json
@@ -24,6 +40,7 @@ def ingest():
     inserted_id = insert_review("reviews", req)
     return jsonify({"status": "ok", "id": str(inserted_id)}), 201
 
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.json
@@ -32,6 +49,7 @@ def analyze():
         return jsonify({"error": "no text provided"}), 400
     res = absa.analyze_text(text)
     return jsonify({"analysis": res})
+
 
 @app.route("/collect/youtube", methods=["POST"])
 def collect_youtube_comments():
@@ -66,6 +84,8 @@ def collect_youtube_comments():
     fetch_comments_for_video(video_id, max_results=max_results)
     return jsonify({"status": "ok", "video_id": video_id, "max_results": max_results}), 200
 
+
+
 @app.route("/course/<course_id>/analysis", methods=["GET"])
 def course_analysis(course_id):
     reviews = get_reviews("reviews", {"course_id": course_id}, limit=500)
@@ -77,7 +97,13 @@ def course_analysis(course_id):
             o["_source_text"] = t
             all_analysis.append(o)
     agg = aggregate_aspect_scores(all_analysis)
-    return jsonify({"course_id": course_id, "aggregated": agg, "raw_count": len(raw_texts), "detailed": all_analysis})
+    return jsonify({
+        "course_id": course_id,
+        "aggregated": agg,
+        "raw_count": len(raw_texts),
+        "detailed": all_analysis
+    })
+
 
 @app.route("/recommend", methods=["POST"])
 def recommend():
@@ -97,5 +123,42 @@ def recommend():
     recommendations = recommend_by_preference(course_analyzed, user_pref)
     return jsonify({"preference": user_pref, "recommendations": recommendations[:5]})
 
+
+@app.route("/analyze-youtube", methods=["POST"])
+def analyze_youtube():
+    data = request.json
+    url = data.get("url")
+    course_id = data.get("course_id", "youtube_course")
+
+    video_id = extract_video_id(url)
+    if not video_id:
+        return jsonify({"error": "Invalid YouTube URL"}), 400
+
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Limit transcript size (first 50 entries)
+    text_blocks = [t["text"] for t in transcript[:50]]
+    joined_text = " ".join(text_blocks)
+
+    # Save transcript snippet as review
+    review = {
+        "source": "youtube",
+        "course_id": course_id,
+        "text": joined_text,
+        "created_at": datetime.utcnow()
+    }
+    insert_review("reviews", review)
+
+    # Run ABSA analysis
+    results = absa.analyze_text(joined_text)
+    return jsonify({"analysis": results, "video_id": video_id})
+
+
+# -----------------------------
+# Main
+# -----------------------------
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
