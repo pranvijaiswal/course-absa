@@ -6,3 +6,4 @@ beautifulsoup4
 requests
 dnspython     # for MongoDB Atlas
 flask-cors
+youtube_transcript_api

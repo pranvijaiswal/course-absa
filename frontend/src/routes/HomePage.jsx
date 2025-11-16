@@ -1,37 +1,70 @@
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function HomePage() {
-  const [url, setUrl] = useState("")
-  const navigate = useNavigate()
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!url) return
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!url) return;
 
-    // extract video ID from YouTube URL
-    const match = url.match(/(?:v=|\.be\/)([^&\n?#]+)/)
-    if (match) {
-      const videoId = match[1]
-      navigate(`/analysis/${videoId}`)
-    } else {
-      alert("Invalid YouTube link")
+    setLoading(true);
+    setMessage("Analyzing video...");
+
+    try {
+      // Hit your Flask backend POST route
+      const response = await fetch("http://127.0.0.1:5000/collect/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url, max_results: 50 }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to analyze video");
+      }
+
+      console.log(data);
+      // The backend returns { video_id, message, count }
+      const videoId = data.video_id;
+
+      setMessage(`Fetched ${data.count} comments. Redirecting...`);
+
+      // Delay slightly to show message before navigating
+      setTimeout(() => {
+        navigate(`/analysis/${videoId}`);
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setMessage(err.message || "Something went wrong.");
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="card">
       <h2>Analyze YouTube Course Reviews</h2>
       <p>Paste a YouTube video link to collect comments and run ABSA.</p>
+
       <form onSubmit={handleSubmit}>
         <input
           type="text"
           placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          disabled={loading}
         />
-        <button type="submit">Analyze</button>
+        <button type="submit" disabled={loading}>
+          {loading ? "Analyzing..." : "Analyze"}
+        </button>
       </form>
+
+      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
     </div>
-  )
+  );
 }
