@@ -1,126 +1,101 @@
-import React, { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 
-function AnalysisPage() {
-  const [course, setCourse] = useState("");
-  const [results, setResults] = useState(null);
-  const [statusMessage, setStatusMessage] = useState(null);
+export default function AnalysisPage() {
+  const { courseId } = useParams(); // same as videoId earlier
+  const [videoData, setVideoData] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
 
-  const mutation = useMutation({
-    mutationFn: async (courseName) => {
-      const res = await fetch("http://localhost:5000/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ course: courseName }),
-      });
-      if (!res.ok) throw new Error("Fetch failed");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setResults(data);
-      setStatusMessage(null);
-    },
-    onError: () => {
-    },
-  });
+  const API_KEY = "AIzaSyCEfwla2I6o0I2R3dpWymyClDW8UtyRepY";
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (course.trim()) {
-      setResults(null);
-      mutation.mutate(course);
+  async function handleGetReview(courseId) {
+    const res = await fetch(
+      `http://127.0.0.1:5000/course/${courseId}/analysis`
+    );
+    const data = await res.json();
+    console.log("Analysis result:", data);
+  }
 
-      setStatusMessage("Fetching comments...");
-      setTimeout(() => {
-        setStatusMessage("Analyzing comments...");
-      }, 5000);
-      setTimeout(() => {
-        setStatusMessage("Failed to generate a review.");
-      }, 10000);
+  useEffect(() => {
+    if (!courseId || courseId === "nothing" || courseId.trim() === "") {
+      setError(
+        "No video to show. Please go back and enter a valid YouTube URL."
+      );
+      return;
     }
-  };
+
+    async function fetchVideoInfo() {
+      setLoading(true);
+      try {
+        const response = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${courseId}&key=${API_KEY}`
+        );
+        const data = await response.json();
+
+        if (!data.items || data.items.length === 0) {
+          setError("No video found for this ID.");
+          return;
+        }
+
+        const vid = data.items[0];
+        setVideoData({
+          title: vid.snippet.title,
+          channel: vid.snippet.channelTitle,
+          thumbnail: vid.snippet.thumbnails.high.url,
+          likes: vid.statistics.likeCount || "N/A",
+          views: vid.statistics.viewCount || "N/A",
+        });
+      } catch (err) {
+        console.error(err);
+        setError("Failed to fetch video info.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchVideoInfo();
+  }, [courseId]);
+
+  if (!courseId || courseId === "nothing" || error) {
+    return (
+      <div className="card">
+        <h2>No video to show</h2>
+        <p>{error || "Please go back and enter a valid YouTube link."}</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="card">
+        <p>Loading video details...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="page">
-      <h1>Course Analysis</h1>
-      <p className="text-muted">
-        Enter a course name to analyze feedback and recommendations.
-      </p>
-
-      <div className="card">
-        <form onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={course}
-            onChange={(e) => setCourse(e.target.value)}
-            placeholder="e.g. Data Structures and Algorithms"
+    <div className="card">
+      {videoData && (
+        <>
+          <h2>{videoData.title}</h2>
+          <img
+            src={videoData.thumbnail}
+            alt="thumbnail"
+            style={{ width: "400px", borderRadius: "8px" }}
           />
-          <button type="submit" disabled={mutation.isLoading}>
-            {mutation.isLoading ? (
-              <>
-                <span className="spinner" /> Analyzing...
-              </>
-            ) : (
-              "Analyze Course"
-            )}
-          </button>
-        </form>
-      </div>
+          <p>
+            <strong>Channel:</strong> {videoData.channel}
+          </p>
+          <p>
+            <strong>Views:</strong> {videoData.views} | <strong>Likes:</strong>{" "}
+            {videoData.likes}
+          </p>
 
-      {statusMessage && (
-        <div className="status-message">
-          <p>{statusMessage}</p>
-        </div>
+          <button onClick={() => handleGetReview(courseId)}>Get Review</button>
+        </>
       )}
-
-      {results && (
-        <div className="results">
-          <div className="card">
-            <h2>Aspect Sentiments</h2>
-            {results.aspects?.map((aspect, idx) => (
-              <div key={idx} className="aspect">
-                <strong>{aspect.name}:</strong> {aspect.sentiment}
-              </div>
-            ))}
-          </div>
-
-          <div className="card">
-            <h2>Recommendations</h2>
-            <ul>
-              {results.recommendations?.map((rec, idx) => (
-                <li key={idx}>{rec}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      <style jsx>{`
-        .spinner {
-          display: inline-block;
-          width: 16px;
-          height: 16px;
-          border: 2px solid #ccc;
-          border-top: 2px solid #333;
-          border-radius: 50%;
-          animation: spin 0.7s linear infinite;
-          margin-right: 8px;
-        }
-
-        @keyframes spin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        .status-message {
-          margin-top: 20px;
-          font-style: italic;
-          color: #555;
-        }
-      `}</style>
     </div>
   );
 }
-
-export default AnalysisPage;
