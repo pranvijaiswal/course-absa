@@ -62,7 +62,9 @@ a:hover {
 }
 
 /* Headings */
-h1, h2, h3 {
+h1,
+h2,
+h3 {
   margin-bottom: 1rem;
   font-weight: 600;
   color: var(--text-color);
@@ -80,7 +82,9 @@ form {
   gap: 1rem;
 }
 
-input, textarea, select {
+input,
+textarea,
+select {
   padding: 0.8rem 1rem;
   border: 1px solid #d1d5db;
   border-radius: var(--border-radius);
@@ -88,7 +92,9 @@ input, textarea, select {
   transition: border 0.2s, box-shadow 0.2s;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
@@ -123,7 +129,6 @@ button:hover {
 }
 
 .card:hover {
-  transform: translateY(-3px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 

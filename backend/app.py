@@ -1,16 +1,17 @@
 # app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from db_client import insert_review, get_reviews
+from db_client import insert_review, get_reviews, close_db, clear_reviews_on_exit
 from analyzer import ABSAService
-from recommender import aggregate_aspect_scores, recommend_by_preference
 from datetime import datetime
-
-from youtube_collector import fetch_comments_for_video
+from aspect_merge import merge_aspects
+from aggregator import aggregate_aspect_scores
+from youtube_transcript_api import YouTubeTranscriptApi
+from collector import fetch_and_store_comments
+from config import MAX_COMMENTS
 
 import re
-from youtube_transcript_api import YouTubeTranscriptApi
-
+import atexit
 
 app = Flask(__name__)
 CORS(app)
@@ -18,147 +19,95 @@ CORS(app)
 absa = ABSAService()
 
 # -----------------------------
-# Helpers
-# -----------------------------
-def extract_video_id(url: str):
-    match = re.search(r"(?:v=|youtu\.be/)([^&]+)", url)
-    return match.group(1) if match else None
-
-
-# -----------------------------
 # Routes
-# -----------------------------
-@app.route("/ingest", methods=["POST"])
-def ingest():
-    data = request.json
-    req = {
-        "source": data.get("source", "manual"),
-        "course_id": data.get("course_id", "unknown"),
-        "text": data.get("text"),
-        "created_at": datetime.utcnow()
-    }
-    inserted_id = insert_review("reviews", req)
-    return jsonify({"status": "ok", "id": str(inserted_id)}), 201
-
-
-@app.route("/analyze", methods=["POST"])
-def analyze():
-    data = request.json
-    text = data.get("text")
-    if not text:
-        return jsonify({"error": "no text provided"}), 400
-    res = absa.analyze_text(text)
-    return jsonify({"analysis": res})
-
+# ----------------------------
 
 @app.route("/collect/youtube", methods=["POST"])
 def collect_youtube_comments():
+    """
+    Step 1: Fetch top YouTube comments and store in MongoDB.
+    Returns the videoId and count of comments inserted.
+    """
     data = request.json or {}
     url = data.get("url")
-    video_id = data.get("videoId")
-    max_results = int(data.get("max_results", 50))
+    max_results = int(data.get("max_results", MAX_COMMENTS))
 
-    def _parse_video_id_from_url(candidate_url: str):
-        if not candidate_url:
-            return None
-        # Support formats: https://www.youtube.com/watch?v=VIDEOID, https://youtu.be/VIDEOID
-        try:
-            from urllib.parse import urlparse, parse_qs
-            parsed = urlparse(candidate_url)
-            if parsed.netloc.endswith("youtu.be"):
-                vid = parsed.path.lstrip("/")
-                return vid or None
-            if parsed.netloc.endswith("youtube.com"):
-                qs = parse_qs(parsed.query)
-                return (qs.get("v", [None])[0])
-        except Exception:
-            return None
-        return None
+    if not url:
+        return jsonify({"error": "YouTube URL is required"}), 400
 
-    if not video_id and url:
-        video_id = _parse_video_id_from_url(url)
+    try:
+        # Fetch comments + insert into DB
+        video_id, count = fetch_and_store_comments(url, max_results=max_results)
 
-    if not video_id:
-        return jsonify({"error": "videoId or url is required"}), 400
+        return jsonify({
+            "status": "ok",
+            "message": f"Fetched and stored {count} comments.",
+            "video_id": video_id,
+            "count": count
+        }), 200
 
-    fetch_comments_for_video(video_id, max_results=max_results)
-    return jsonify({"status": "ok", "video_id": video_id, "max_results": max_results}), 200
-
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/course/<course_id>/analysis", methods=["GET"])
 def course_analysis(course_id):
-    reviews = get_reviews("reviews", {"course_id": course_id}, limit=500)
-    raw_texts = [r["text"] for r in reviews]
+    print(">>> course_id received:", course_id)
+    reviews = get_reviews("reviews", {"course_id": course_id}, limit=100)
+    print(">>> reviews fetched:", len(reviews))
+    if reviews:
+        print(">>> sample review:", reviews[0])
+    else:
+        print(">>> NO reviews found")
+
+    raw_texts = [r.get("text") for r in reviews]
+    if not reviews:
+        print(">>> NO reviews found")
+        return jsonify({
+            "course_id": course_id,
+            "raw_count": 0,
+            "detailed": [],
+            "aspect_list": []
+        }), 200
+    
+    batched_results = absa.analyze_batch(raw_texts)
+
+    # --- Destructure (flatten) the nested lists ---
     all_analysis = []
-    for t in raw_texts:
-        out = absa.analyze_text(t)
-        for o in out:
-            o["_source_text"] = t
-            all_analysis.append(o)
-    agg = aggregate_aspect_scores(all_analysis)
+    for batch in batched_results:
+        all_analysis.extend(batch)
+
+    print(f">>> Flattened {len(all_analysis)} total aspect entries")
+
+    # Merge same aspects across reviews
+    aspect_list = merge_aspects(all_analysis)
+
+    # Calculate all aggregates
+    aggregate_object = aggregate_aspect_scores(all_analysis)
+
+    # Respond with both detailed and merged results
     return jsonify({
         "course_id": course_id,
-        "aggregated": agg,
         "raw_count": len(raw_texts),
-        "detailed": all_analysis
+        "aggregate": {
+            "aggregate_score": aggregate_object["aggregate_score"],
+            "scaled_score": aggregate_object["scaled_score"],
+            "adjusted_score": aggregate_object["adjusted_score"],
+            "overall_sentiment": aggregate_object["overall_sentiment"],
+        },
+        "aspect_list": aspect_list    # grouped + averaged by confidence
     })
-
-
-@app.route("/recommend", methods=["POST"])
-def recommend():
-    data = request.json
-    user_pref = data.get("preference_aspect", "content")
-    reviews = get_reviews("reviews", {}, limit=1000)
-    course_map = {}
-    for r in reviews:
-        cid = r.get("course_id", "unknown")
-        course_map.setdefault(cid, []).append(r["text"])
-    course_analyzed = {}
-    for cid, texts in course_map.items():
-        analyses = []
-        for t in texts:
-            analyses.extend(absa.analyze_text(t))
-        course_analyzed[cid] = analyses
-    recommendations = recommend_by_preference(course_analyzed, user_pref)
-    return jsonify({"preference": user_pref, "recommendations": recommendations[:5]})
-
-
-@app.route("/analyze-youtube", methods=["POST"])
-def analyze_youtube():
-    data = request.json
-    url = data.get("url")
-    course_id = data.get("course_id", "youtube_course")
-
-    video_id = extract_video_id(url)
-    if not video_id:
-        return jsonify({"error": "Invalid YouTube URL"}), 400
-
-    try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    # Limit transcript size (first 50 entries)
-    text_blocks = [t["text"] for t in transcript[:50]]
-    joined_text = " ".join(text_blocks)
-
-    # Save transcript snippet as review
-    review = {
-        "source": "youtube",
-        "course_id": course_id,
-        "text": joined_text,
-        "created_at": datetime.utcnow()
-    }
-    insert_review("reviews", review)
-
-    # Run ABSA analysis
-    results = absa.analyze_text(joined_text)
-    return jsonify({"analysis": results, "video_id": video_id})
 
 
 # -----------------------------
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    atexit.register(clear_reviews_on_exit)
+    try:
+        app.run(debug=True, use_reloader=False, host="0.0.0.0", port=5000)
+    except KeyboardInterrupt:
+        print("\n[INFO] Server stopped manually.")
+    finally:
+        close_db()

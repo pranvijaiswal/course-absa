@@ -12,21 +12,15 @@ import AnalysisPage from "./routes/AnalysisPage";
 // global styles
 import "./App.css";
 
-// ✅ create react-query client
-const queryClient = new QueryClient();
-
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    {/* ✅ provide react-query context */}
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<RootLayout />}>
-            <Route index element={<HomePage />} />
-            <Route path="analysis/:courseId" element={<AnalysisPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootLayout />}>
+          <Route index element={<HomePage />} />
+          <Route path="analysis/:courseId" element={<AnalysisPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>
 );

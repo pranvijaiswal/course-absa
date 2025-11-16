@@ -4,7 +4,6 @@ import { Link, Outlet } from "react-router-dom";
 function RootLayout() {
   return (
     <div>
-      {/* Navbar */}
       <nav className="navbar">
         <div className="navbar-brand">SentiLearn</div>
         <div className="navbar-links">
@@ -13,7 +12,6 @@ function RootLayout() {
         </div>
       </nav>
 
-      {/* Main content */}
       <main className="container">
         <Outlet />
       </main>
