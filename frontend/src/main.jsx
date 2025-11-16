@@ -2,6 +2,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import dotenv from "dotenv";
 
 // routes
 import RootLayout from "./routes/RootLayout";
@@ -10,6 +11,8 @@ import AnalysisPage from "./routes/AnalysisPage";
 
 // global styles
 import "./App.css";
+
+dotenv.config();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
