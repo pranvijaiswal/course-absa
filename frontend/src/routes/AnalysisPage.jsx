@@ -8,7 +8,8 @@ export default function AnalysisPage() {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
 
-  const API_KEY = "AIzaSyCEfwla2I6o0I2R3dpWymyClDW8UtyRepY";
+  const API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY;
+  console.log(API_KEY);
 
   async function handleGetReview(courseId) {
     const res = await fetch(
